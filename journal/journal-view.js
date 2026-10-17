@@ -9,6 +9,7 @@ import {
   recordConfirmationMiniCard,
   recordZHost,
 } from '../ui/ui.js';
+import { setV2ZHeaderRows } from '../ui/v2/z-layout.js';
 import { getWorkplaces } from '../core/workplace-time.js';
 import { personDisplay } from '../core/people/presentation.js';
 import { getRecordPaymentState, recordAmountDue } from '../core/finance/index.js';
@@ -17,6 +18,8 @@ import {
   deleteRecord,
   getRecord,
   refreshRecordsFromServer,
+  setRecordAttendance,
+  setRecordConfirmed,
 } from '../core/record/index.js';
 import { flushBusinessPersistence } from '../core/business-persistence.js';
 
@@ -34,6 +37,23 @@ function workplaceName(id) {
   return workplace?.name || workplace?.title || 'Рабочее пространство';
 }
 
+function normalizedAttendance(value) {
+  return value === 'arrived' || value === 'no-show' ? value : '';
+}
+
+function appointmentStart(record = {}) {
+  const date = String(record?.date || '').slice(0, 10);
+  const time = String(record?.from || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const value = new Date(`${date}T${time}:00`);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function hasAppointmentStarted(record = {}) {
+  const start = appointmentStart(record);
+  return Boolean(start && Date.now() >= start.getTime());
+}
+
 function actionSheet({ cancelled = false } = {}) {
   return actionBlock([
     !cancelled ? button('Корректировка', { variant: 'secondary', data: 'data-journal-record-correct' }) : '',
@@ -46,11 +66,16 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
   if (!record?.id) return null;
 
   let currentRecord = getRecord(record.id) || record;
+  let startTimer = null;
   const layer = mountRecordZ({
     settings: false,
     title: personDisplay(currentRecord.person || {}).name || 'Запись',
     className: 'journal-view-z',
-    onClose,
+    onClose: () => {
+      if (startTimer) clearTimeout(startTimer);
+      startTimer = null;
+      onClose();
+    },
   });
   if (!layer) return null;
 
@@ -65,6 +90,22 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
     await flushBusinessPersistence();
     await refreshRecordsFromServer();
     syncCurrent();
+  };
+
+  const persistStatus = async (mutate, message) => {
+    const updated = mutate();
+    if (!updated) return;
+    currentRecord = updated;
+    render();
+    try {
+      await persistAndRefresh();
+      render();
+    } catch (error) {
+      await refreshRecordsFromServer().catch(() => null);
+      syncCurrent();
+      render();
+      openNotice({ title: 'Не удалось сохранить', message: String(error?.message || message) });
+    }
   };
 
   const confirmCancel = (source) => {
@@ -164,8 +205,22 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
     });
   };
 
+  const scheduleStartRender = (source) => {
+    if (startTimer) clearTimeout(startTimer);
+    startTimer = null;
+    const start = appointmentStart(source);
+    if (!start) return;
+    const delay = start.getTime() - Date.now();
+    if (delay <= 0) return;
+    startTimer = setTimeout(() => {
+      startTimer = null;
+      if (layer.isConnected) render();
+    }, Math.min(delay + 50, 2147483647));
+  };
+
   const render = () => {
     const source = syncCurrent();
+    scheduleStartRender(source);
     const person = personDisplay(source.person || {});
     const procedures = Array.isArray(source.procedures) ? source.procedures : [];
     const totalDuration = procedures.reduce((sum, item) => sum + (Number(item?.duration) || 0), 0);
@@ -189,6 +244,17 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
       })),
     });
 
+    const started = hasAppointmentStarted(source);
+    const effectiveAttendance = normalizedAttendance(source.attendance) || (started ? 'arrived' : '');
+    const confirmedControl = `<div class="segment-control segment-control--one" role="group" aria-label="Подтверждение записи">
+      <button type="button" class="${payment.fullyPaid || source.confirmed ? 'is-active' : ''}" aria-pressed="${payment.fullyPaid || Boolean(source.confirmed)}" data-record-view-confirmed${payment.fullyPaid ? ' disabled' : ''}>Подтвердил</button>
+    </div>`;
+    const attendanceControl = `<div class="segment-control segment-control--two-equal" role="group" aria-label="Посещение записи">
+      <button type="button" class="${effectiveAttendance === 'arrived' ? 'is-active' : ''}" aria-pressed="${effectiveAttendance === 'arrived'}" data-record-view-attendance="arrived"${!started ? ' disabled' : ''}>Пришел</button>
+      <button type="button" class="${effectiveAttendance === 'no-show' ? 'is-active' : ''}" aria-pressed="${effectiveAttendance === 'no-show'}" data-record-view-attendance="no-show"${!started ? ' disabled' : ''}>Не пришел</button>
+    </div>`;
+    setV2ZHeaderRows(layer, [confirmedControl, attendanceControl]);
+
     root.innerHTML = `<div class="record-screen record-screen--state-view"><div role="button" tabindex="0" data-journal-record-actions>${card}</div></div>`;
     const cardButton = root.querySelector('[data-journal-record-actions]');
     cardButton?.addEventListener('click', openActions);
@@ -197,6 +263,24 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
       event.preventDefault();
       openActions();
     });
+
+    layer.querySelector('[data-record-view-confirmed]')?.addEventListener('click', () => {
+      if (payment.fullyPaid) return;
+      persistStatus(
+        () => setRecordConfirmed(source.id, !Boolean(source.confirmed)),
+        'Сервер не подтвердил изменение статуса.',
+      );
+    });
+    layer.querySelectorAll('[data-record-view-attendance]').forEach((node) => node.addEventListener('click', () => {
+      if (!hasAppointmentStarted(source)) return;
+      const next = normalizedAttendance(node.dataset.recordViewAttendance);
+      const current = normalizedAttendance(source.attendance) || 'arrived';
+      if (!next || next === current) return;
+      persistStatus(
+        () => setRecordAttendance(source.id, next),
+        'Сервер не подтвердил изменение посещения.',
+      );
+    }));
 
     layer.dataset.journalViewPaymentState = payment.fullyPaid ? 'paid' : payment.partiallyPaid ? 'partial' : 'unpaid';
   };
