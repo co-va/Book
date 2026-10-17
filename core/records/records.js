@@ -16,6 +16,7 @@ import {
   recordPersonList,
   recordProcedureList,
   recordWorkplaceCards,
+  select,
   viewNavigation,
 } from '../../ui/ui.js';
 import { createRecord } from '../record/index.js';
@@ -368,24 +369,69 @@ export function openRecords({
 
   const renderDates = () => {
     const dates = source.workingDates(state.workplaceId);
-    const first = state.date || dates[0] || '2000-01-01';
-    const initial = new Date(`${first}T00:00:00`);
+    const now = new Date();
+    const selectedDate = state.date ? new Date(`${state.date}T00:00:00`) : now;
+    let displayedMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const workingYears = dates
+      .map((value) => Number(String(value || '').slice(0, 4)))
+      .filter((value) => Number.isInteger(value));
+    const minYear = workingYears.length ? Math.min(now.getFullYear(), ...workingYears) : now.getFullYear();
+    const maxYear = workingYears.length ? Math.max(now.getFullYear(), ...workingYears) : now.getFullYear();
+    const yearOptions = Array.from({ length: maxYear - minYear + 1 }, (_, index) => {
+      const year = maxYear - index;
+      return { value: String(year), label: String(year) };
+    });
+    const yearHeader = () => select({
+      label: 'Год',
+      name: 'recordsCalendarYear',
+      value: String(displayedMonth.getFullYear()),
+      options: yearOptions,
+      aria: 'Год',
+      className: 'ui-select--center',
+      data: 'data-records-calendar-year',
+    });
     const view = owner.render({
       step: 'date',
+      header: dates.length ? yearHeader() : '',
       body: dates.length ? '<div data-records-calendar></div>' : emptyState('Свободных дат нет', 'В графике пока нет доступных дат.'),
     });
     const calendar = view?.body?.querySelector('[data-records-calendar]');
     if (!calendar) return;
-    initCalendar(calendar, {
-      month: new Date(initial.getFullYear(), initial.getMonth(), 1),
-      selectedValue: state.date || '',
-      workingDates: dates,
-      onDateSelect: (value) => {
-        if (!dates.includes(value)) return;
-        state.date = value;
-        nextAfterDate();
-      },
+
+    const syncYearHeader = () => {
+      const input = view?.header?.querySelector('[name="recordsCalendarYear"]');
+      if (!input) return;
+      const year = String(displayedMonth.getFullYear());
+      input.value = year;
+      const visible = input.closest('.ui-select')?.querySelector('.ui-select__value');
+      if (visible) visible.textContent = year;
+    };
+
+    const mountCalendar = () => {
+      initCalendar(calendar, {
+        month: displayedMonth,
+        selectedValue: state.date || '',
+        workingDates: dates,
+        onMonthChange: (month) => {
+          displayedMonth = month;
+          syncYearHeader();
+        },
+        onDateSelect: (value) => {
+          if (!dates.includes(value)) return;
+          state.date = value;
+          nextAfterDate();
+        },
+      });
+    };
+
+    view?.header?.querySelector('[name="recordsCalendarYear"]')?.addEventListener('change', (event) => {
+      const year = Number(event.target.value);
+      if (!Number.isInteger(year)) return;
+      displayedMonth = new Date(year, displayedMonth.getMonth(), 1);
+      mountCalendar();
     });
+
+    mountCalendar();
   };
 
   const renderBreakEnd = () => {
