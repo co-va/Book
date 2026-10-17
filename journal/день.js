@@ -15,8 +15,8 @@ function withFinancialState(usages = []) {
 }
 
 async function openExistingRecord(record) {
-  const { openJournalView } = await import('./journal-view.js');
-  openJournalView(record);
+  const { openRecordView } = await import('../core/records/view.js');
+  openRecordView(record);
 }
 
 async function openUsage(usage, rerender = () => {}) {
