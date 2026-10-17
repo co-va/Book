@@ -381,36 +381,30 @@ export function openRecords({
       const year = maxYear - index;
       return { value: String(year), label: String(year) };
     });
-    const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'long' });
+    const yearHeader = () => select({
+      label: 'Год',
+      name: 'recordsCalendarYear',
+      value: String(displayedMonth.getFullYear()),
+      options: yearOptions,
+      aria: 'Год',
+      className: 'ui-select--center',
+      data: 'data-records-calendar-year',
+    });
     const view = owner.render({
       step: 'date',
+      header: dates.length ? yearHeader() : '',
       body: dates.length ? '<div data-records-calendar></div>' : emptyState('Свободных дат нет', 'В графике пока нет доступных дат.'),
     });
     const calendar = view?.body?.querySelector('[data-records-calendar]');
     if (!calendar) return;
 
-    const bindYearSelector = () => {
-      const monthHost = calendar.querySelector(':scope > [data-calendar] > .calendar__header .calendar__month');
-      if (!monthHost) return;
-      const monthName = document.createElement('span');
-      monthName.className = 'calendar__month-name';
-      const label = monthFormatter.format(displayedMonth);
-      monthName.textContent = label ? label.charAt(0).toUpperCase() + label.slice(1) : '';
-      monthHost.replaceChildren(monthName);
-      monthHost.insertAdjacentHTML('beforeend', select({
-        name: 'recordsCalendarYear',
-        value: String(displayedMonth.getFullYear()),
-        options: yearOptions,
-        aria: 'Год',
-        className: 'ui-select--center',
-        data: 'data-records-calendar-year',
-      }));
-      monthHost.querySelector('[name="recordsCalendarYear"]')?.addEventListener('change', (event) => {
-        const year = Number(event.target.value);
-        if (!Number.isInteger(year)) return;
-        displayedMonth = new Date(year, displayedMonth.getMonth(), 1);
-        mountCalendar();
-      });
+    const syncYearHeader = () => {
+      const input = view?.header?.querySelector('[name="recordsCalendarYear"]');
+      if (!input) return;
+      const year = String(displayedMonth.getFullYear());
+      input.value = year;
+      const visible = input.closest('.ui-select')?.querySelector('.ui-select__value');
+      if (visible) visible.textContent = year;
     };
 
     const mountCalendar = () => {
@@ -420,7 +414,7 @@ export function openRecords({
         workingDates: dates,
         onMonthChange: (month) => {
           displayedMonth = month;
-          queueMicrotask(bindYearSelector);
+          syncYearHeader();
         },
         onDateSelect: (value) => {
           if (!dates.includes(value)) return;
@@ -428,8 +422,14 @@ export function openRecords({
           nextAfterDate();
         },
       });
-      queueMicrotask(bindYearSelector);
     };
+
+    view?.header?.querySelector('[name="recordsCalendarYear"]')?.addEventListener('change', (event) => {
+      const year = Number(event.target.value);
+      if (!Number.isInteger(year)) return;
+      displayedMonth = new Date(year, displayedMonth.getMonth(), 1);
+      mountCalendar();
+    });
 
     mountCalendar();
   };
