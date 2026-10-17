@@ -135,11 +135,8 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
     actions.querySelector('[data-journal-record-correct]')?.addEventListener('click', async () => {
       actions.v2Close?.();
       const latest = syncCurrent();
-      const { openRecords } = await import('../core/records/records.js');
-      openRecords({
-        context: 'professional',
-        record: latest,
-        professionalActions: true,
+      const { openRecordCorrection } = await import('../core/records/actions.js');
+      openRecordCorrection(latest, {
         onSaved: async (saved) => {
           currentRecord = saved;
           render();
