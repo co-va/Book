@@ -19,7 +19,7 @@ import {
   select,
   viewNavigation,
 } from '../../ui/ui.js';
-import { createRecord } from '../record/index.js';
+import { createRecord, updateRecord } from '../record/index.js';
 import { createJournalBreak } from '../../journal/break-service.js';
 import { getPeople } from '../people/data.js';
 import { openPersonCreate } from '../people/create.js';
@@ -103,9 +103,11 @@ function professionalProvider() {
     procedureCost: (item, workplaceId) => procedureCostForWorkplace(item, workplaceId),
     procedureDuration: (item) => Math.max(0, Number(item?.duration) || 0),
     workingDates: (workplaceId) => getWorkplaceWorkingDates(workplaceId),
-    timeRows({ workplaceId, date, procedures }) {
+    timeRows({ workplaceId, date, procedures, state = {} }) {
       const duration = Math.max(5, procedures.reduce((sum, item) => sum + (Number(item.duration) || 0), 0));
-      return buildNaturalBookingTimeRows(getAvailabilityGrid({ date, workplaceId }), duration);
+      return buildNaturalBookingTimeRows(getAvailabilityGrid({ date, workplaceId }), duration, {
+        excludeId: state.recordId || '',
+      });
     },
     async create(state, actionContext = null) {
       const primary = state.people[0] || state.person;
@@ -174,6 +176,7 @@ function totalDuration(items = []) {
 
 export function openRecords({
   context = 'professional',
+  record = null,
   person = null,
   workplaceId = '',
   date = '',
@@ -184,18 +187,26 @@ export function openRecords({
   actionContext = null,
   provider = {},
   onCreated = () => {},
+  onSaved = null,
   onCancel = () => {},
 } = {}) {
   const source = normalizeProvider(provider);
+  const existing = record?.id ? record : null;
+  const initialPerson = existing?.person || person;
+  const initialPeople = Array.isArray(existing?.group?.participants) && existing.group.participants.length
+    ? existing.group.participants
+    : initialPerson ? [initialPerson] : [];
+  const initialProcedures = existing ? existing.procedures : procedures;
   const state = {
-    workplaceId: String(workplaceId || ''),
-    date: date ? dateKey(date) : '',
+    recordId: String(existing?.id || ''),
+    workplaceId: String(existing?.workplaceId ?? workplaceId ?? ''),
+    date: existing?.date ? dateKey(existing.date) : date ? dateKey(date) : '',
     timeHint: String(timeHint || ''),
-    from: '',
-    to: '',
-    procedures: Array.isArray(procedures) ? procedures : [],
-    person,
-    people: person ? [person] : [],
+    from: String(existing?.from || ''),
+    to: String(existing?.to || ''),
+    procedures: Array.isArray(initialProcedures) ? initialProcedures.map((entry) => ({ ...entry })) : [],
+    person: initialPerson ? { ...initialPerson } : null,
+    people: initialPeople.map((item) => ({ ...item })),
     mode: 'record',
     correcting: false,
   };
@@ -230,6 +241,7 @@ export function openRecords({
         workplaceId: state.workplaceId,
         from: state.from,
         to: end,
+        excludeId: state.recordId,
       }).ok) {
         state.to = end;
         if (!state.person && source.kind === 'professional') renderPerson();
@@ -688,7 +700,7 @@ export function openRecords({
     const view = owner.render({
       step: 'confirmation',
       body: `<div class="record-screen record-screen--state-view"><div role="button" tabindex="0" data-records-correction>${card}</div></div>`,
-      action: { label: 'Подтвердить', data: 'data-records-confirm' },
+      action: { label: state.recordId ? 'Сохранить' : 'Подтвердить', data: 'data-records-confirm' },
     });
     const correction = view?.body?.querySelector('[data-records-correction]');
     correction?.addEventListener('click', renderCorrectionMenu);
@@ -701,19 +713,53 @@ export function openRecords({
     renderFooter(view, {
       '[data-records-confirm]': async () => {
         if (source.kind === 'professional' && !checkTimeAvailability({
-          date: state.date, workplaceId: state.workplaceId, from: state.from, to: state.to,
+          date: state.date,
+          workplaceId: state.workplaceId,
+          from: state.from,
+          to: state.to,
+          excludeId: state.recordId,
         }).ok) {
           openNotice({ title: 'Запись недоступна', message: 'Выбранное время уже занято или недоступно.' });
           return;
         }
         try {
-          const created = await source.create(state, actionContext);
-          if (!created) return;
+          let saved;
+          if (state.recordId) {
+            const primary = state.people[0] || state.person;
+            const editCapacity = groupCapacity(state.procedures);
+            saved = updateRecord(state.recordId, {
+              date: state.date,
+              workplaceId: state.workplaceId,
+              from: state.from,
+              to: state.to,
+              person: personSnapshot(primary),
+              group: editCapacity > 1 ? {
+                capacity: editCapacity,
+                participants: state.people.map(personSnapshot),
+              } : null,
+              procedures: state.procedures.map((entry) => ({
+                id: entry.id,
+                name: entry.name,
+                cost: entry.cost,
+                duration: entry.duration,
+                groupBooking: entry.raw?.groupBooking
+                  ? { ...entry.raw.groupBooking }
+                  : entry.groupBooking ? { ...entry.groupBooking } : undefined,
+              })),
+            }, { actionContext });
+          } else {
+            saved = await source.create(state, actionContext);
+          }
+          if (!saved) return;
           owner.commit();
-          onCreated(created, { ...state });
+          const callback = typeof onSaved === 'function' ? onSaved : onCreated;
+          callback(saved, { ...state });
         } catch (error) {
           if (source.onCreateError) source.onCreateError(error, state, { renderTimes, renderConfirmation });
-          else openNotice({ title: 'Запись недоступна', message: 'Не удалось создать запись.' });
+          else openNotice({
+            title: 'Запись недоступна',
+            message: state.recordId ? 'Не удалось сохранить.' : 'Не удалось создать.',
+          });
         }
       },
     });
@@ -727,6 +773,12 @@ export function openRecords({
       return;
     }
     if (!state.workplaceId && workplaces.length === 1) state.workplaceId = source.workplaceId(workplaces[0]);
+
+    if (state.recordId) {
+      state.correcting = true;
+      renderCorrectionMenu();
+      return;
+    }
 
     if (context === 'journal') {
       if (!state.workplaceId || !state.date || timeToMinutes(state.timeHint) == null) {
