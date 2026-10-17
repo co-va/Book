@@ -8,7 +8,7 @@ function source(path) {
 const persistence = source('core/business-persistence.js');
 const serverSync = source('online-booking/server-sync.js');
 const financeService = source('core/finance/service.js');
-const journalView = source('journal/journal-view.js');
+const recordView = source('core/records/view.js');
 const journal = source('journal/journal.js');
 const timetable = source('timetable/timetable.js');
 const profile = source('core/profile/data.js');
@@ -18,7 +18,7 @@ const frontendSources = [
   persistence,
   serverSync,
   financeService,
-  journalView,
+  recordView,
   journal,
   timetable,
   profile,
@@ -69,7 +69,8 @@ assert.match(financeService, /recordRefundExpense[\s\S]*applyServerState\(respon
 assert.match(financeService, /cancelFinanceOperation[\s\S]*applyServerState\(response/);
 assert.match(financeService, /hardDeleteFinanceOperation[\s\S]*applyServerState\(response/);
 
-assert.doesNotMatch(journalView, /recordPaymentIncome|correctFinanceOperation|recordRefundExpense|cancelPaymentOperation|hardDeleteFinanceOperation/);
+assert.doesNotMatch(recordView, /recordPaymentIncome|correctFinanceOperation|recordRefundExpense|cancelPaymentOperation|hardDeleteFinanceOperation/);
+assert.equal(existsSync(new URL('../journal/journal-view.js', import.meta.url)), false);
 assert.equal(existsSync(new URL('../journal/record-payment.js', import.meta.url)), false);
 assert.equal(existsSync(new URL('../journal/record-view.js', import.meta.url)), false);
 assert.match(journal, /book:products-changed/);
