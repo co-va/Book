@@ -17,7 +17,7 @@ function naturalCandidateMinutes(grid) {
   return [...values].sort((left, right) => left - right);
 }
 
-export function buildNaturalBookingTimeRows(grid, duration, { notBefore = '' } = {}) {
+export function buildNaturalBookingTimeRows(grid, duration, { notBefore = '', excludeId = '' } = {}) {
   const minutes = Math.max(0, Number(duration) || 0);
   const minimum = timeToMinutes(notBefore);
   if (minutes <= 0) return [];
@@ -28,7 +28,7 @@ export function buildNaturalBookingTimeRows(grid, duration, { notBefore = '' } =
       const from = minutesToTime(minute);
       const to = minutesToTime(minute + minutes);
       const availability = from && to
-        ? getTimeGridRangeState(grid, { from, to })
+        ? getTimeGridRangeState(grid, { from, to, excludeId })
         : { ok: false, reason: 'outside-working-time' };
       return {
         from: from || '',
