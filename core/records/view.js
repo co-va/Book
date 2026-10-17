@@ -8,11 +8,11 @@ import {
   openNotice,
   recordConfirmationMiniCard,
   recordZHost,
-} from '../ui/ui.js';
-import { setV2ZHeaderRows } from '../ui/v2/z-layout.js';
-import { getWorkplaces } from '../core/workplace-time.js';
-import { personDisplay } from '../core/people/presentation.js';
-import { getRecordPaymentState, recordAmountDue } from '../core/finance/index.js';
+} from '../../ui/ui.js';
+import { setV2ZHeaderRows } from '../../ui/v2/z-layout.js';
+import { getWorkplaces } from '../workplace-time.js';
+import { personDisplay } from '../people/presentation.js';
+import { getRecordPaymentState, recordAmountDue } from '../finance/index.js';
 import {
   cancelRecord,
   deleteRecord,
@@ -20,8 +20,9 @@ import {
   refreshRecordsFromServer,
   setRecordAttendance,
   setRecordConfirmed,
-} from '../core/record/index.js';
-import { flushBusinessPersistence } from '../core/business-persistence.js';
+} from '../record/index.js';
+import { flushBusinessPersistence } from '../business-persistence.js';
+import { openRecords } from './records.js';
 
 function formatDate(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -56,13 +57,13 @@ function hasAppointmentStarted(record = {}) {
 
 function actionSheet({ cancelled = false } = {}) {
   return actionBlock([
-    !cancelled ? button('Корректировка', { variant: 'secondary', data: 'data-journal-record-correct' }) : '',
-    !cancelled ? button('Отмена', { variant: 'danger', data: 'data-journal-record-cancel' }) : '',
-    button('Удалить', { variant: 'critical', data: 'data-journal-record-delete' }),
+    !cancelled ? button('Корректировка', { variant: 'secondary', data: 'data-record-view-correct' }) : '',
+    !cancelled ? button('Отмена', { variant: 'danger', data: 'data-record-view-cancel' }) : '',
+    button('Удалить', { variant: 'critical', data: 'data-record-view-delete' }),
   ].filter(Boolean).join(''));
 }
 
-export function openJournalView(record, { onClose = () => {} } = {}) {
+export function openRecordView(record, { onClose = () => {} } = {}) {
   if (!record?.id) return null;
 
   let currentRecord = getRecord(record.id) || record;
@@ -70,7 +71,7 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
   const layer = mountRecordZ({
     settings: false,
     title: personDisplay(currentRecord.person || {}).name || 'Запись',
-    className: 'journal-view-z',
+    className: 'record-view-z journal-view-z',
     onClose: () => {
       if (startTimer) clearTimeout(startTimer);
       startTimer = null;
@@ -111,14 +112,14 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
   const confirmCancel = (source) => {
     const confirm = mountModal(document.body, modal(
       `<div class="modal-title"><h2>Отменить?</h2><p>Запись останется в истории, время освободится.</p></div>${actionBlock([
-        button('Нет', { variant: 'secondary', data: 'data-journal-record-cancel-no' }),
-        button('Отмена', { variant: 'danger', data: 'data-journal-record-cancel-yes' }),
+        button('Нет', { variant: 'secondary', data: 'data-record-view-cancel-no' }),
+        button('Отмена', { variant: 'danger', data: 'data-record-view-cancel-yes' }),
       ].join(''))}`,
       { variant: 'x', surface: 'app', title: 'Отмена' },
     ));
     if (!confirm) return;
-    confirm.querySelector('[data-journal-record-cancel-no]')?.addEventListener('click', () => confirm.v2Close?.());
-    confirm.querySelector('[data-journal-record-cancel-yes]')?.addEventListener('click', async (event) => {
+    confirm.querySelector('[data-record-view-cancel-no]')?.addEventListener('click', () => confirm.v2Close?.());
+    confirm.querySelector('[data-record-view-cancel-yes]')?.addEventListener('click', async (event) => {
       const submit = event.currentTarget;
       submit.disabled = true;
       if (!cancelRecord(source.id)) {
@@ -140,12 +141,12 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
   const confirmDelete = (source) => {
     const confirm = mountModal(document.body, modal(
       `<div class="modal-title"><h2>Удалить?</h2><p>Запись и её история будут удалены без восстановления.</p></div>${actionBlock(
-        button('Удалить', { variant: 'critical', data: 'data-journal-record-delete-confirm' }),
+        button('Удалить', { variant: 'critical', data: 'data-record-view-delete-confirm' }),
       )}`,
       { variant: 'x', surface: 'app', title: 'Удалить' },
     ));
     if (!confirm) return;
-    confirm.querySelector('[data-journal-record-delete-confirm]')?.addEventListener('click', async (event) => {
+    confirm.querySelector('[data-record-view-delete-confirm]')?.addEventListener('click', async (event) => {
       const submit = event.currentTarget;
       submit.disabled = true;
       if (!deleteRecord(source.id)) {
@@ -173,11 +174,13 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
     ));
     if (!actions) return;
 
-    actions.querySelector('[data-journal-record-correct]')?.addEventListener('click', async () => {
+    actions.querySelector('[data-record-view-correct]')?.addEventListener('click', () => {
       actions.v2Close?.();
       const latest = syncCurrent();
-      const { openRecordCorrection } = await import('../core/records/actions.js');
-      openRecordCorrection(latest, {
+      openRecords({
+        context: 'professional',
+        record: latest,
+        professionalActions: true,
         onSaved: async (saved) => {
           currentRecord = saved;
           render();
@@ -194,12 +197,12 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
       });
     });
 
-    actions.querySelector('[data-journal-record-cancel]')?.addEventListener('click', () => {
+    actions.querySelector('[data-record-view-cancel]')?.addEventListener('click', () => {
       actions.v2Close?.();
       confirmCancel(source);
     });
 
-    actions.querySelector('[data-journal-record-delete]')?.addEventListener('click', () => {
+    actions.querySelector('[data-record-view-delete]')?.addEventListener('click', () => {
       actions.v2Close?.();
       confirmDelete(source);
     });
@@ -255,8 +258,8 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
     </div>`;
     setV2ZHeaderRows(layer, [confirmedControl, attendanceControl]);
 
-    root.innerHTML = `<div class="record-screen record-screen--state-view"><div role="button" tabindex="0" data-journal-record-actions>${card}</div></div>`;
-    const cardButton = root.querySelector('[data-journal-record-actions]');
+    root.innerHTML = `<div class="record-screen record-screen--state-view"><div role="button" tabindex="0" data-record-view-actions>${card}</div></div>`;
+    const cardButton = root.querySelector('[data-record-view-actions]');
     cardButton?.addEventListener('click', openActions);
     cardButton?.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -282,7 +285,7 @@ export function openJournalView(record, { onClose = () => {} } = {}) {
       );
     }));
 
-    layer.dataset.journalViewPaymentState = payment.fullyPaid ? 'paid' : payment.partiallyPaid ? 'partial' : 'unpaid';
+    layer.dataset.recordViewPaymentState = payment.fullyPaid ? 'paid' : payment.partiallyPaid ? 'partial' : 'unpaid';
   };
 
   render();

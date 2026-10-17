@@ -5,20 +5,21 @@ import { getBookingTimeRows } from '../online-booking/model.js';
 const records = fs.readFileSync('core/records/records.js', 'utf8');
 const owner = fs.readFileSync('ui/record/creation-flow.js', 'utf8');
 const day = fs.readFileSync('journal/день.js', 'utf8');
-const journalView = fs.readFileSync('journal/journal-view.js', 'utf8');
+const recordView = fs.readFileSync('core/records/view.js', 'utf8');
 const booking = fs.readFileSync('online-booking/access.js', 'utf8');
 const personEntry = fs.readFileSync('core/people/record-creation.js', 'utf8');
 
 assert.equal(fs.existsSync('journal/record.js'), false);
 assert.equal(fs.existsSync('journal/record-view.js'), false);
 assert.equal(fs.existsSync('journal/record-creation-x.js'), false);
+assert.equal(fs.existsSync('journal/journal-view.js'), false);
 assert.equal(fs.existsSync('records/records.js'), false);
 assert.equal(fs.existsSync('core/records.js'), false);
 assert.match(records, /export function openRecords/);
 assert.match(owner, /variant: 'q'/);
 assert.match(day, /import\('\.\.\/core\/records\/records\.js'\)/);
-assert.match(day, /import\('\.\/journal-view\.js'\)/);
-assert.match(journalView, /export function openJournalView/);
+assert.match(day, /import\('\.\.\/core\/records\/view\.js'\)/);
+assert.match(recordView, /export function openRecordView/);
 assert.match(personEntry, /from '\.\.\/records\/records\.js'/);
 assert.match(booking, /from '\.\.\/core\/records\/records\.js'/);
 

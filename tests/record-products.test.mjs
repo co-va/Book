@@ -57,9 +57,10 @@ assert.equal(getSettlementItemTotals('procedure', 'procedure-products').factTota
 assert.equal(getSettlementItemTotals('product', 'product-1').factTotal, 1800);
 assert.equal(getRecords().find((item) => item.id === record.id)?.finance?.planTotal, 6800);
 
-// Journal View is intentionally display-only while Records has one canonical owner.
-const journalViewSource = readFileSync(new URL('../journal/journal-view.js', import.meta.url), 'utf8');
-assert.doesNotMatch(journalViewSource, /data-record-settings-sale|data-record-sale-product|button\('Продажа'|initMultiSelect|paymentForm|mountPaymentQ/);
+// Record View is display-only while Records has one canonical owner.
+const recordViewSource = readFileSync(new URL('../core/records/view.js', import.meta.url), 'utf8');
+assert.doesNotMatch(recordViewSource, /data-record-settings-sale|data-record-sale-product|button\('Продажа'|initMultiSelect|paymentForm|mountPaymentQ/);
+assert.equal(existsSync(new URL('../journal/journal-view.js', import.meta.url)), false);
 assert.equal(existsSync(new URL('../journal/record-view.js', import.meta.url)), false);
 assert.equal(existsSync(new URL('../journal/record-payment.js', import.meta.url)), false);
 
